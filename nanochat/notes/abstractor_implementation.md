@@ -60,12 +60,14 @@ A single policy is shared between standard and dual modes:
 - Defaults preserve legacy behavior (`attention_impl="standard"`).
 
 ## KV Cache Status (Important)
-- Dual mode KV cache is intentionally not implemented in v1.
-- Behavior is fail-fast:
-  - `GPT.forward(...)` raises `NotImplementedError` when `attention_impl="hadamard_dual"` and `kv_cache` is provided.
-- Implication:
-  - Teacher-forced training forward is supported.
-  - Inference paths that depend on KV cache must not use dual mode yet.
+- Dual mode KV cache is implemented.
+- Decode path uses one fused cache attention call over concatenated values:
+  - `v_cat = [v_sa, xk_rel]` with value width `2 * head_dim`.
+- `KVCache` now supports separate value width via `v_head_dim`:
+  - Standard mode: `v_head_dim = head_dim`.
+  - Hadamard dual mode: `v_head_dim = 2 * head_dim`.
+- `Engine.generate()` configures this automatically from `model.config.attention_impl`.
+- Dual attention cache path validates cache layout and raises clear assertions if cache width is incorrect.
 
 ## Serialization and Pipeline Compatibility
 - `scripts/base_train.py` includes CLI flags for all new attention/residual settings.
@@ -80,20 +82,21 @@ See `tests/test_dual_attention.py` for:
 - Dual forward shape checks.
 - GQA shape/compatibility checks in dual mode.
 - Residual scheduling checks.
-- KV behavior checks (standard accepts cache, dual rejects).
+- KV behavior checks (standard accepts cache, dual accepts cache with correct `v_head_dim`).
+- Cache-vs-no-cache parity checks for dual mode.
+- Sliding-window cache parity checks for dual mode.
+- Wrong-cache-shape fail-fast checks for dual mode.
 
 ## Known Limitations
 - Only hadamard dual attention is available in production.
 - Symbol retriever functionality is not part of v1 production behavior (`NullSymbolRetriever` placeholder).
 - No structured debug/intermediate-state return API for attention internals.
-- No dual-mode KV-cache support.
 
 ## TODOs / Future Work
-1. Implement KV-cache support for `HadamardDualAttention` and integrate with decode/inference paths.
-2. Add optional debug/intermediate cache API at GPT level for interpretability analysis.
-3. Revisit symbol retriever integration once production requirements are clear.
-4. Expand test coverage for longer-window/sliding-window decode behavior once dual KV cache exists.
-5. Consider a performance pass (kernel-level and memory-layout profiling) after functional parity goals are complete.
+1. Add optional debug/intermediate cache API at GPT level for interpretability analysis.
+2. Revisit symbol retriever integration once production requirements are clear.
+3. Expand cache coverage to additional decode scenarios (longer contexts, mixed prefill/chunk patterns, engine-level generation parity).
+4. Consider a performance pass (kernel-level and memory-layout profiling) after functional parity goals are complete.
 
 ## Handoff Notes
 - If changing attention math, keep `nanochat/attention_utils.py` as the single helper source for RoPE/QK normalization to avoid drift between implementations.
