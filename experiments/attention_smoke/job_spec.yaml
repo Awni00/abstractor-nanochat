@@ -31,7 +31,7 @@ parameters:
     repo_root: [/Users/awni/Documents/project-code/abstractor-nanochat]
     nanochat_base_dir: [/Users/awni/Documents/project-code/abstractor-nanochat/.nanochat_cache/attention_smoke]
 
-sslurm_args:
+slurm_args:
   defaults:
     # let cluster, partition, etc be determined by logic 
     # cluster: bouchet  # Change to 'bouchet' for bouchet cluster

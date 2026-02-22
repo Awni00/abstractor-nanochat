@@ -51,7 +51,7 @@ def detect_cluster() -> str:
         return "misha"
     if "bouchet" in host:
         return "bouchet"
-    return "misha"  # safe default
+    return "none"
 
 cluster = detect_cluster()
 
