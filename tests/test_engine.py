@@ -101,6 +101,7 @@ def test_kv_cache_basic():
 
     # Check initial state
     assert kv_cache.get_pos() == 0
+    assert kv_cache.v_head_dim == head_dim
     assert kv_cache.k_cache.shape == (num_layers, batch_size, seq_len, num_heads, head_dim)
     assert kv_cache.v_cache.shape == (num_layers, batch_size, seq_len, num_heads, head_dim)
 
@@ -153,6 +154,47 @@ def test_kv_cache_prefill():
     # Check data was copied
     assert (dst_cache.k_cache[0, 0, :16, :, :] == 1.0).all()
     assert (dst_cache.v_cache[0, 0, :16, :, :] == 2.0).all()
+
+
+def test_kv_cache_custom_v_head_dim_prefill():
+    """KVCache supports widened value channels and copies them during prefill."""
+    batch_size = 1
+    num_heads = 2
+    head_dim = 4
+    v_head_dim = 8
+    num_layers = 2
+
+    src_cache = KVCache(
+        batch_size=batch_size,
+        num_heads=num_heads,
+        seq_len=16,
+        head_dim=head_dim,
+        v_head_dim=v_head_dim,
+        num_layers=num_layers,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    src_cache.k_cache[0, 0, :8, :, :] = 1.0
+    src_cache.v_cache[0, 0, :8, :, :] = 3.0
+    src_cache.advance(8)
+
+    dst_cache = KVCache(
+        batch_size=batch_size,
+        num_heads=num_heads,
+        seq_len=32,
+        head_dim=head_dim,
+        v_head_dim=v_head_dim,
+        num_layers=num_layers,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    dst_cache.prefill(src_cache)
+
+    assert dst_cache.v_head_dim == v_head_dim
+    assert dst_cache.v_cache.shape == (num_layers, batch_size, 32, num_heads, v_head_dim)
+    assert dst_cache.get_pos() == 8
+    assert (dst_cache.k_cache[0, 0, :8, :, :] == 1.0).all()
+    assert (dst_cache.v_cache[0, 0, :8, :, :] == 3.0).all()
 
 
 def test_multi_sample_first_token_diversity():

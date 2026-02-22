@@ -129,6 +129,93 @@ def test_kv_cache_behavior_standard_vs_hadamard_dual():
     )
     dual_model = GPT(dual_cfg)
     dual_model.init_weights()
+    dual_head_dim = dual_cfg.n_embd // dual_cfg.n_head
 
-    with pytest.raises(NotImplementedError):
-        dual_model.forward(idx, kv_cache=object())
+    dual_cache = KVCache(
+        batch_size=1,
+        num_heads=dual_cfg.n_kv_head,
+        seq_len=8,
+        head_dim=dual_head_dim,
+        v_head_dim=2 * dual_head_dim,
+        num_layers=dual_cfg.n_layer,
+        device=dual_model.get_device(),
+        dtype=torch.float32,
+    )
+    dual_logits = dual_model.forward(idx, kv_cache=dual_cache)
+    assert dual_logits.shape == (1, 1, dual_cfg.vocab_size)
+
+
+@torch.no_grad()
+@pytest.mark.parametrize("window_pattern", ["L", "S"])
+def test_hadamard_dual_kv_cache_matches_full_forward(window_pattern):
+    cfg = GPTConfig(
+        sequence_len=16,
+        vocab_size=64,
+        n_layer=2,
+        n_head=4,
+        n_kv_head=2,
+        n_embd=64,
+        attention_impl="hadamard_dual",
+        dual_rel_head_proportion=0.5,
+        window_pattern=window_pattern,
+        use_residual_augmentation=True,
+        residual_stride=1,
+        residual_gate_channels=16,
+    )
+    model = GPT(cfg)
+    model.init_weights()
+    model.eval()
+
+    idx = torch.randint(0, cfg.vocab_size, (1, 8), dtype=torch.long, device=model.get_device())
+    full_logits = model.forward(idx)
+
+    head_dim = cfg.n_embd // cfg.n_head
+    kv_cache = KVCache(
+        batch_size=1,
+        num_heads=cfg.n_kv_head,
+        seq_len=idx.size(1),
+        head_dim=head_dim,
+        v_head_dim=2 * head_dim,
+        num_layers=cfg.n_layer,
+        device=model.get_device(),
+        dtype=next(model.parameters()).dtype,
+    )
+
+    cached_logits_steps = []
+    for t in range(idx.size(1)):
+        step_logits = model.forward(idx[:, t:t + 1], kv_cache=kv_cache)
+        cached_logits_steps.append(step_logits)
+    cached_logits = torch.cat(cached_logits_steps, dim=1)
+
+    assert kv_cache.get_pos() == idx.size(1)
+    torch.testing.assert_close(cached_logits, full_logits, rtol=1e-4, atol=1e-4)
+
+
+def test_hadamard_dual_kv_cache_rejects_wrong_v_width():
+    cfg = GPTConfig(
+        sequence_len=16,
+        vocab_size=64,
+        n_layer=1,
+        n_head=4,
+        n_kv_head=2,
+        n_embd=64,
+        attention_impl="hadamard_dual",
+    )
+    model = GPT(cfg)
+    model.init_weights()
+
+    head_dim = cfg.n_embd // cfg.n_head
+    wrong_cache = KVCache(
+        batch_size=1,
+        num_heads=cfg.n_kv_head,
+        seq_len=4,
+        head_dim=head_dim,
+        # Intentionally leave v_head_dim at default=head_dim (wrong for hadamard_dual).
+        num_layers=cfg.n_layer,
+        device=model.get_device(),
+        dtype=torch.float32,
+    )
+    idx = torch.randint(0, cfg.vocab_size, (1, 1), dtype=torch.long, device=model.get_device())
+
+    with pytest.raises(AssertionError, match="v_head_dim"):
+        model.forward(idx, kv_cache=wrong_cache)

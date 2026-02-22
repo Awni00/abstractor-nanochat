@@ -103,9 +103,6 @@ class HadamardDualAttention(nn.Module):
         return layer_idx % residual_stride == (n_layer - 1) % residual_stride
 
     def forward(self, x, ve, cos_sin, window_size, kv_cache):
-        if kv_cache is not None:
-            raise NotImplementedError("KV cache is not implemented yet for Hadamard dual attention.")
-
         # Tensor shape legend:
         # B=batch size, T=sequence length, C=model width, Hq=query heads, Hkv=kv heads, D=head_dim.
         # x: [B, T, C]
@@ -136,7 +133,28 @@ class HadamardDualAttention(nn.Module):
 
         # One fused attention call over concatenated value channels.
         v_cat = torch.cat([v_sa, xk_rel], dim=-1)  # [B, T, Hkv, 2D]
-        y_cat = flash_attn.flash_attn_func(q, k, v_cat, causal=True, window_size=window_size)  # [B, T, Hq, 2D]
+        if kv_cache is None:
+            y_cat = flash_attn.flash_attn_func(q, k, v_cat, causal=True, window_size=window_size)  # [B, T, Hq, 2D]
+        else:
+            k_cache, v_cache = kv_cache.get_layer_cache(self.layer_idx)
+            expected_v_dim = 2 * self.head_dim
+            assert k_cache.shape[-1] == self.head_dim, (
+                f"Expected dual attention k_cache last dim={self.head_dim}, got {k_cache.shape[-1]}"
+            )
+            assert v_cache.shape[-1] == expected_v_dim, (
+                f"Expected dual attention v_cache last dim={expected_v_dim}, got {v_cache.shape[-1]}. "
+                f"Construct KVCache with v_head_dim={expected_v_dim} for hadamard_dual."
+            )
+            y_cat = flash_attn.flash_attn_with_kvcache(
+                q, k_cache, v_cache,
+                k=k, v=v_cat,
+                cache_seqlens=kv_cache.cache_seqlens,
+                causal=True,
+                window_size=window_size,
+            )  # [B, T, Hq, 2D]
+            if self.layer_idx == kv_cache.n_layers - 1:
+                kv_cache.advance(seqlen)
+
         y_sa_all, y_rel_all = y_cat.split(self.head_dim, dim=-1)  # each [B, T, Hq, D]
 
         branch_outputs = []

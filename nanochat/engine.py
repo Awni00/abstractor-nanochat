@@ -88,17 +88,19 @@ class KVCache:
     - Tensors are (B, T, H, D) not (B, H, T, D)
     - FA3 updates the cache in-place during flash_attn_with_kvcache
     - Position tracked per batch element via cache_seqlens tensor
+    - Key/value channel widths can differ (e.g., dual attention uses wider V)
     """
 
-    def __init__(self, batch_size, num_heads, seq_len, head_dim, num_layers, device, dtype):
+    def __init__(self, batch_size, num_heads, seq_len, head_dim, num_layers, device, dtype, v_head_dim=None):
         self.batch_size = batch_size
         self.max_seq_len = seq_len
         self.n_layers = num_layers
         self.n_heads = num_heads
         self.head_dim = head_dim
-        # Pre-allocate cache tensors: (n_layers, B, T, H, D)
+        self.v_head_dim = head_dim if v_head_dim is None else v_head_dim
+        # Pre-allocate cache tensors: (n_layers, B, T, H, Dk) and (n_layers, B, T, H, Dv)
         self.k_cache = torch.zeros(num_layers, batch_size, seq_len, num_heads, head_dim, device=device, dtype=dtype)
-        self.v_cache = torch.zeros(num_layers, batch_size, seq_len, num_heads, head_dim, device=device, dtype=dtype)
+        self.v_cache = torch.zeros(num_layers, batch_size, seq_len, num_heads, self.v_head_dim, device=device, dtype=dtype)
         # Current sequence length per batch element (FA3 needs int32)
         self.cache_seqlens = torch.zeros(batch_size, dtype=torch.int32, device=device)
 
@@ -124,7 +126,8 @@ class KVCache:
         Used when we do batch=1 prefill and then want to generate multiple samples in parallel.
         """
         assert self.get_pos() == 0, "Cannot prefill a non-empty KV cache"
-        assert self.n_layers == other.n_layers and self.n_heads == other.n_heads and self.head_dim == other.head_dim
+        assert self.n_layers == other.n_layers and self.n_heads == other.n_heads
+        assert self.head_dim == other.head_dim and self.v_head_dim == other.v_head_dim
         assert self.max_seq_len >= other.max_seq_len
         other_pos = other.get_pos()
         self.k_cache[:, :, :other_pos, :, :] = other.k_cache[:, :, :other_pos, :, :]
@@ -193,7 +196,15 @@ class Engine:
 
         # 1) Run a batch 1 prefill of the prompt tokens
         m = self.model.config
-        kv_model_kwargs = {"num_heads": m.n_kv_head, "head_dim": m.n_embd // m.n_head, "num_layers": m.n_layer}
+        head_dim = m.n_embd // m.n_head
+        attention_impl = getattr(m, "attention_impl", "standard")
+        v_head_dim = head_dim * 2 if attention_impl == "hadamard_dual" else head_dim
+        kv_model_kwargs = {
+            "num_heads": m.n_kv_head,
+            "head_dim": head_dim,
+            "v_head_dim": v_head_dim,
+            "num_layers": m.n_layer,
+        }
         kv_cache_prefill = KVCache(
             batch_size=1,
             seq_len=len(tokens),

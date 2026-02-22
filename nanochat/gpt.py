@@ -121,6 +121,9 @@ class CausalSelfAttention(nn.Module):
         else:
             # Inference: use flash_attn_with_kvcache which handles cache management
             k_cache, v_cache = kv_cache.get_layer_cache(self.layer_idx)
+            assert v_cache.shape[-1] == self.head_dim, (
+                f"Expected standard attention v_cache last dim={self.head_dim}, got {v_cache.shape[-1]}"
+            )
             y = flash_attn.flash_attn_with_kvcache(
                 q, k_cache, v_cache,
                 k=k, v=v,
@@ -431,8 +434,6 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None, kv_cache=None, loss_reduction='mean'):
         B, T = idx.size()
-        if kv_cache is not None and self.config.attention_impl == "hadamard_dual":
-            raise NotImplementedError("KV cache is not implemented yet for attention_impl='hadamard_dual'.")
 
         # Grab the rotary embeddings for the current sequence length (they are of shape (1, seq_len, 1, head_dim/2))
         assert T <= self.cos.size(1), f"Sequence length grew beyond the rotary embeddings cache: {T} > {self.cos.size(1)}"
