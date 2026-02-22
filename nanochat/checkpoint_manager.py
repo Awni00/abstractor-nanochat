@@ -26,6 +26,21 @@ def _patch_missing_config_keys(model_config_kwargs):
     if "window_pattern" not in model_config_kwargs:
         model_config_kwargs["window_pattern"] = "L"
         log0(f"Patching missing window_pattern in model config to 'L'")
+    if "attention_impl" not in model_config_kwargs:
+        model_config_kwargs["attention_impl"] = "standard"
+        log0("Patching missing attention_impl in model config to 'standard'")
+    if "dual_rel_head_proportion" not in model_config_kwargs:
+        model_config_kwargs["dual_rel_head_proportion"] = 0.5
+        log0("Patching missing dual_rel_head_proportion in model config to 0.5")
+    if "use_residual_augmentation" not in model_config_kwargs:
+        model_config_kwargs["use_residual_augmentation"] = True
+        log0("Patching missing use_residual_augmentation in model config to True")
+    if "residual_stride" not in model_config_kwargs:
+        model_config_kwargs["residual_stride"] = 2
+        log0("Patching missing residual_stride in model config to 2")
+    if "residual_gate_channels" not in model_config_kwargs:
+        model_config_kwargs["residual_gate_channels"] = 32
+        log0("Patching missing residual_gate_channels in model config to 32")
 
 def _patch_missing_keys(model_data, model_config):
     """Add default values for new parameters that may be missing in old checkpoints."""

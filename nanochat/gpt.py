@@ -20,6 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nanochat.common import get_dist_info, print0
+from nanochat.abstractor import DualAttention
+from nanochat.attention_utils import apply_rotary_emb, qk_norm
 from nanochat.optim import MuonAdamW, DistMuonAdamW
 
 # Our custom Flash Attention module that automatically uses FA3 on Hopper+ and SDPA fallback elsewhere
@@ -37,6 +39,17 @@ class GPTConfig:
     # Characters: L=long (full context), S=short (half context)
     # Examples: "L"=all full context, "SL"=alternating, "SSL"=two short then one long
     window_pattern: str = "SSSL"
+    # Attention implementation mode
+    # standard: current CausalSelfAttention
+    # hadamard_dual: fused SA + Hadamard relational attention from abstractor.py
+    attention_impl: str = "standard"
+    # Fraction of heads allocated to relational heads in hadamard_dual mode.
+    # n_heads_ra = round(n_head * dual_rel_head_proportion), clamped to [0, n_head].
+    dual_rel_head_proportion: float = 0.5
+    # Shared residual augmentation policy for standard and hadamard_dual attention.
+    use_residual_augmentation: bool = True
+    residual_stride: int = 2
+    residual_gate_channels: int = 32
 
 
 def norm(x):
@@ -44,17 +57,17 @@ def norm(x):
     return F.rms_norm(x, (x.size(-1),))
 
 
-def has_ve(layer_idx, n_layer):
-    """Returns True if GPT layer should have Value Embedding (alternating, last layer always included)."""
-    return layer_idx % 2 == (n_layer - 1) % 2
-
-def apply_rotary_emb(x, cos, sin):
-    assert x.ndim == 4  # multihead attention
-    d = x.shape[3] // 2
-    x1, x2 = x[..., :d], x[..., d:] # split up last dim into two halves
-    y1 = x1 * cos + x2 * sin # rotate pairs of dims
-    y2 = x1 * (-sin) + x2 * cos
-    return torch.cat([y1, y2], 3)
+def has_residual_layer(layer_idx, n_layer, use_residual_augmentation=True, residual_stride=2):
+    """
+    Returns True if this layer uses shared residual augmentation.
+    Final layer is always included when augmentation is enabled.
+    """
+    if not use_residual_augmentation:
+        return False
+    assert residual_stride >= 1, "residual_stride must be >= 1"
+    if layer_idx == n_layer - 1:
+        return True
+    return layer_idx % residual_stride == (n_layer - 1) % residual_stride
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config, layer_idx):
@@ -70,8 +83,15 @@ class CausalSelfAttention(nn.Module):
         self.c_k = nn.Linear(self.n_embd, self.n_kv_head * self.head_dim, bias=False)
         self.c_v = nn.Linear(self.n_embd, self.n_kv_head * self.head_dim, bias=False)
         self.c_proj = nn.Linear(self.n_embd, self.n_embd, bias=False)
-        self.ve_gate_channels = 32
-        self.ve_gate = nn.Linear(self.ve_gate_channels, self.n_kv_head, bias=False) if has_ve(layer_idx, config.n_layer) else None
+        self.residual_gate_channels = config.residual_gate_channels
+        assert self.residual_gate_channels > 0
+        assert self.residual_gate_channels <= self.n_embd
+        self.ve_gate = nn.Linear(self.residual_gate_channels, self.n_kv_head, bias=False) if has_residual_layer(
+            layer_idx,
+            config.n_layer,
+            config.use_residual_augmentation,
+            config.residual_stride,
+        ) else None
 
     def forward(self, x, ve, cos_sin, window_size, kv_cache):
         B, T, C = x.size()
@@ -85,13 +105,13 @@ class CausalSelfAttention(nn.Module):
         # Value residual (ResFormer): mix in value embedding with input-dependent gate per head
         if ve is not None:
             ve = ve.view(B, T, self.n_kv_head, self.head_dim)
-            gate = 2 * torch.sigmoid(self.ve_gate(x[..., :self.ve_gate_channels]))  # (B, T, n_kv_head), range (0, 2)
+            gate = 2 * torch.sigmoid(self.ve_gate(x[..., :self.residual_gate_channels]))  # (B, T, n_kv_head), range (0, 2)
             v = v + gate.unsqueeze(-1) * ve
 
         # Apply Rotary Embeddings to queries and keys to get relative positional encoding
         cos, sin = cos_sin
         q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
-        q, k = norm(q), norm(k) # QK norm
+        q, k = qk_norm(q), qk_norm(k) # QK norm
 
         # Flash Attention (FA3 on Hopper+, PyTorch SDPA fallback elsewhere)
         # window_size is (left, right) tuple: (N, 0) for causal, (-1, 0) for full context
@@ -134,7 +154,12 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, config, layer_idx):
         super().__init__()
-        self.attn = CausalSelfAttention(config, layer_idx)
+        if config.attention_impl == "standard":
+            self.attn = CausalSelfAttention(config, layer_idx)
+        elif config.attention_impl == "hadamard_dual":
+            self.attn = DualAttention(config, layer_idx)
+        else:
+            raise ValueError(f"Unknown attention_impl: {config.attention_impl}")
         self.mlp = MLP(config)
 
     def forward(self, x, ve, cos_sin, window_size, kv_cache):
@@ -152,6 +177,9 @@ class GPT(nn.Module):
         """
         super().__init__()
         self.config = config
+        assert config.attention_impl in {"standard", "hadamard_dual"}, f"Invalid attention_impl: {config.attention_impl}"
+        assert config.residual_stride >= 1, "residual_stride must be >= 1"
+        assert 0.0 <= config.dual_rel_head_proportion <= 1.0, "dual_rel_head_proportion must be in [0, 1]"
         # Compute per-layer window sizes for sliding window attention
         # window_size is (left, right) tuple: (-1, 0) for full context, (N, 0) for sliding window
         self.window_sizes = self._compute_window_sizes(config)
@@ -171,10 +199,14 @@ class GPT(nn.Module):
         # Separate parameters so they can have different optimizer treatment
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))   # fake init, real init in init_weights()
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))     # fake init, real init in init_weights()
-        # Value embeddings (ResFormer-style): alternating layers, last layer always included
+        # Shared residual source (ResFormer-style): configurable stride, final layer included.
         head_dim = config.n_embd // config.n_head
         kv_dim = config.n_kv_head * head_dim
-        self.value_embeds = nn.ModuleDict({str(i): nn.Embedding(padded_vocab_size, kv_dim) for i in range(config.n_layer) if has_ve(i, config.n_layer)})
+        self.value_embeds = nn.ModuleDict({
+            str(i): nn.Embedding(padded_vocab_size, kv_dim)
+            for i in range(config.n_layer)
+            if has_residual_layer(i, config.n_layer, config.use_residual_augmentation, config.residual_stride)
+        })
         # To support meta device initialization, we init the rotary embeddings here, but it's just "fake" meta tensors only.
         # As for rotary_seq_len, these rotary embeddings are pretty small/cheap in memory,
         # so let's just over-compute them by 10X, but assert fail if we ever reach that amount.
@@ -209,10 +241,16 @@ class GPT(nn.Module):
         n_embd = self.config.n_embd
         s = 3**0.5 * n_embd**-0.5 # sqrt(3) multiplier makes sure Uniform achieves the same std as Normal
         for block in self.transformer.h:
-            torch.nn.init.uniform_(block.attn.c_q.weight, -s, s) # weights use Uniform to avoid outliers
-            torch.nn.init.uniform_(block.attn.c_k.weight, -s, s)
-            torch.nn.init.uniform_(block.attn.c_v.weight, -s, s)
-            torch.nn.init.zeros_(block.attn.c_proj.weight) # projections are zero
+            attn = block.attn
+            attn_core = attn.impl if hasattr(attn, "impl") else attn
+            torch.nn.init.uniform_(attn_core.c_q.weight, -s, s) # weights use Uniform to avoid outliers
+            torch.nn.init.uniform_(attn_core.c_k.weight, -s, s)
+            torch.nn.init.uniform_(attn_core.c_v.weight, -s, s)
+            if hasattr(attn_core, "c_xk_rel"):
+                torch.nn.init.uniform_(attn_core.c_xk_rel.weight, -s, s)
+            if getattr(attn_core, "c_q_rel", None) is not None:
+                torch.nn.init.uniform_(attn_core.c_q_rel.weight, -s, s)
+            torch.nn.init.zeros_(attn_core.c_proj.weight) # projections are zero
             torch.nn.init.uniform_(block.mlp.c_fc.weight, -s, s)
             torch.nn.init.zeros_(block.mlp.c_proj.weight)
 
@@ -226,8 +264,14 @@ class GPT(nn.Module):
 
         # Gate weights init to zero so gates start at sigmoid(0) = 0.5, scaled by 2 -> 1.0 (neutral)
         for block in self.transformer.h:
-            if block.attn.ve_gate is not None:
-                torch.nn.init.zeros_(block.attn.ve_gate.weight)
+            attn = block.attn
+            attn_core = attn.impl if hasattr(attn, "impl") else attn
+            if getattr(attn_core, "ve_gate", None) is not None:
+                torch.nn.init.zeros_(attn_core.ve_gate.weight)
+            if getattr(attn_core, "sa_residual_gate", None) is not None:
+                torch.nn.init.zeros_(attn_core.sa_residual_gate.weight)
+            if getattr(attn_core, "ra_residual_gate", None) is not None:
+                torch.nn.init.zeros_(attn_core.ra_residual_gate.weight)
 
         # Rotary embeddings
         head_dim = self.config.n_embd // self.config.n_head
@@ -387,6 +431,8 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None, kv_cache=None, loss_reduction='mean'):
         B, T = idx.size()
+        if kv_cache is not None and self.config.attention_impl == "hadamard_dual":
+            raise NotImplementedError("KV cache is not implemented yet for attention_impl='hadamard_dual'.")
 
         # Grab the rotary embeddings for the current sequence length (they are of shape (1, seq_len, 1, head_dim/2))
         assert T <= self.cos.size(1), f"Sequence length grew beyond the rotary embeddings cache: {T} > {self.cos.size(1)}"
