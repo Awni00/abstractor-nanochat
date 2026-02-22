@@ -1502,6 +1502,7 @@ dependencies = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-8-nanochat-cpu' and extra == 'extra-8-nanochat-gpu')" },
     { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-8-nanochat-cpu' and extra == 'extra-8-nanochat-gpu')" },
     { name = "setuptools" },
+    { name = "slurmkit" },
     { name = "tabulate" },
     { name = "tiktoken" },
     { name = "tokenizers" },
@@ -1542,6 +1543,7 @@ requires-dist = [
     { name = "rustbpe", specifier = ">=0.1.0" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "setuptools", specifier = ">=80.9.0" },
+    { name = "slurmkit", specifier = ">=0.0.4" },
     { name = "tabulate", specifier = ">=0.9.0" },
     { name = "tiktoken", specifier = ">=0.11.0" },
     { name = "tokenizers", specifier = ">=0.22.0" },
@@ -2821,6 +2823,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "slurmkit"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "pandas" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tabulate" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/21/2e/4aafe7561d53c2bf25e1a75365d8c705c13ea5b8af54a95de444781e583a/slurmkit-0.0.4.tar.gz", hash = "sha256:ca2cc82245567a82f520a2792b02062a19bc3b7055c5205701829d1ac96297b9", size = 110516, upload-time = "2026-02-16T22:55:29.799Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/ea/5da9db37e381326712f5861161bfe84d22058b1bdd987a918add4267ad06/slurmkit-0.0.4-py3-none-any.whl", hash = "sha256:bd39f7d706c2b226c4e1345aecb6134cb0ae778d41ec00a754a6a6d9faea9a57", size = 85207, upload-time = "2026-02-16T22:55:28.03Z" },
 ]
 
 [[package]]
