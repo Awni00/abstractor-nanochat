@@ -1,0 +1,74 @@
+jobs_dir: jobs/
+collections_dir: .job-collections/
+sync_dir: .slurm-kit/sync/
+output_patterns:
+- '{job_name}.{job_id}.out'
+- '{job_name}.{job_id}.*.out'
+- slurm-{job_id}.out
+slurm_defaults:
+  partition: gpu_h200
+  time: '48:00:00'
+  mem: 64G
+  nodes: 1
+  ntasks: 1
+job_structure:
+  scripts_subdir: job_scripts/
+  logs_subdir: logs/
+cleanup:
+  threshold_seconds: 300
+  min_age_days: 3
+ui:
+  mode: rich
+
+notifications:
+
+  defaults:
+    events: [job_failed, job_completed]
+    timeout_seconds: 5
+    max_attempts: 3
+    backoff_seconds: 0.5
+    output_tail_lines: 40
+
+  job:
+    ai:
+      enabled: false
+      # callback: "utilities.slurmkit_ai_callback:summarize_job_payload"
+  collection_final:
+    attempt_mode: latest
+    min_support: 3
+    top_k: 10
+    include_failed_output_tail_lines: 20
+    ai:
+      enabled: false
+      # callback: "utilities.slurmkit_ai_callback:summarize_collection_report"
+
+  routes:
+    - name: team_slack
+      type: slack
+      url: "${SLACK_WEBHOOK_URL}"
+      enabled: true
+      events: [job_failed, job_completed, collection_failed, collection_completed]
+    # - name: team_email
+    #   type: email
+    #   enabled: false
+    #   to: ["ops@example.com"]
+    #   from: "slurmkit-demo@example.com"
+    #   smtp_host: "smtp.example.com"
+    #   smtp_port: 587
+    #   smtp_starttls: true
+    #   smtp_ssl: false
+    #   events: [job_failed, collection_failed, collection_completed]
+    # - name: local_email
+    #   type: email
+    #   enabled: true
+    #   events: [job_failed, job_completed, collection_failed, collection_completed, test_notification]
+    #   to: "${TEST_EMAIL_TO}"
+    #   from: "${TEST_EMAIL_FROM}"
+    #   smtp_host: "${TEST_SMTP_HOST}"
+    #   smtp_port: ${TEST_SMTP_PORT}
+    #   smtp_starttls: false
+    #   smtp_ssl: false
+
+wandb:
+  entity: awni00
+  default_projects: []
