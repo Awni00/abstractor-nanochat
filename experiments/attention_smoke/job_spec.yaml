@@ -27,10 +27,6 @@ parameters:
     # data bootstrap
     num_files: [2]
 
-    # paths
-    repo_root: [/Users/awni/Documents/project-code/abstractor-nanochat]
-    nanochat_base_dir: [/Users/awni/Documents/project-code/abstractor-nanochat/.nanochat_cache/attention_smoke]
-
 slurm_args:
   defaults:
     # let cluster, partition, etc be determined by logic 

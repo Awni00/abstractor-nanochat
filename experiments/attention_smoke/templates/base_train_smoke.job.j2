@@ -18,13 +18,45 @@ echo "attention_impl={{ attention_impl }}"
 echo "host=$(hostname)"
 echo "job_id=${SLURM_JOB_ID:-local}"
 
-cd {{ repo_root }}
+if [ -n "${SLURM_CLUSTER_NAME:-}" ]; then
+  CLUSTER="$(echo "${SLURM_CLUSTER_NAME}" | tr '[:upper:]' '[:lower:]')"
+else
+  HOST="$(hostname | tr '[:upper:]' '[:lower:]')"
+  if [[ "${HOST}" == *"misha"* ]]; then
+    CLUSTER="misha"
+  elif [[ "${HOST}" == *"bouchet"* ]]; then
+    CLUSTER="bouchet"
+  else
+    CLUSTER="none"
+  fi
+fi
+
+case "${CLUSTER}" in
+  none)
+    PROJECT_ROOT="/Users/awni/Documents/project-code/abstractor-nanochat"
+    ;;
+  bouchet)
+    PROJECT_ROOT="/home/ma2393/project_pi_jl2994/ma2393/abstractor-nanochat"
+    ;;
+  misha)
+    PROJECT_ROOT="/gpfs/radev/home/ma2393/project/analogical-exploration"
+    ;;
+  *)
+    echo "ERROR: Unsupported cluster '${CLUSTER}'. Expected one of: none, bouchet, misha." >&2
+    exit 1
+    ;;
+esac
+
+echo "cluster=${CLUSTER}"
+echo "project_root=${PROJECT_ROOT}"
+
+cd "${PROJECT_ROOT}"
 
 if [ -f ".venv/bin/activate" ]; then
   source .venv/bin/activate
 fi
 
-export NANOCHAT_BASE_DIR="{{ nanochat_base_dir }}"
+export NANOCHAT_BASE_DIR="${PROJECT_ROOT}/.cache"
 mkdir -p "${NANOCHAT_BASE_DIR}"
 
 # Minimal self-contained data bootstrap: 1 train shard + 1 val shard
