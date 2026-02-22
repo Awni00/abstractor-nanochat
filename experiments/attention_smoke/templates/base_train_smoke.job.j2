@@ -1,0 +1,53 @@
+#!/bin/bash
+#SBATCH --job-name={{ job_name }}
+#SBATCH --partition={{ slurm.partition }}
+#SBATCH --time={{ slurm.time }}
+#SBATCH --mem={{ slurm.mem }}
+#SBATCH --nodes={{ slurm.nodes }}
+#SBATCH --ntasks={{ slurm.ntasks }}
+#SBATCH --cpus-per-task={{ slurm.cpus_per_task }}
+#SBATCH --gres=gpu:{{ slurm.gpus }}
+#SBATCH --output={{ logs_dir }}/{{ job_name }}.%j.out
+#SBATCH --error={{ logs_dir }}/{{ job_name }}.%j.err
+
+set -euo pipefail
+
+echo "==== attention smoke job start ===="
+echo "job_name={{ job_name }}"
+echo "attention_impl={{ attention_impl }}"
+echo "host=$(hostname)"
+echo "job_id=${SLURM_JOB_ID:-local}"
+
+cd {{ repo_root }}
+
+if [ -f ".venv/bin/activate" ]; then
+  source .venv/bin/activate
+fi
+
+export NANOCHAT_BASE_DIR="{{ nanochat_base_dir }}"
+mkdir -p "${NANOCHAT_BASE_DIR}"
+
+# Minimal self-contained data bootstrap: 1 train shard + 1 val shard
+python -m nanochat.dataset --num-files {{ num_files }} --num-workers 1
+
+python -m scripts.base_train \
+  --run dummy \
+  --device-type cuda \
+  --depth {{ depth }} \
+  --aspect-ratio {{ aspect_ratio }} \
+  --head-dim {{ head_dim }} \
+  --max-seq-len {{ max_seq_len }} \
+  --window-pattern {{ window_pattern }} \
+  --attention-impl {{ attention_impl }} \
+  --dual-rel-head-proportion {{ dual_rel_head_proportion }} \
+  --residual-gate-channels {{ residual_gate_channels }} \
+  --device-batch-size {{ device_batch_size }} \
+  --total-batch-size {{ total_batch_size }} \
+  --num-iterations {{ num_iterations }} \
+  --eval-every -1 \
+  --core-metric-every -1 \
+  --sample-every -1 \
+  --save-every -1 \
+  --model-tag attnsmoke_{{ attention_impl }}
+
+echo "==== attention smoke job success ===="

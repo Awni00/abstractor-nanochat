@@ -1,0 +1,44 @@
+name: attention_smoke
+description: "Minimal smoke test for GPT attention_impl variants (standard vs hadamard_dual)"
+
+template: templates/base_train_smoke.job.j2
+output_dir: job_scripts
+logs_dir: logs
+
+parameters:
+  mode: grid
+  values:
+    attention_impl: [standard, hadamard_dual]
+    dual_rel_head_proportion: [0.5]
+
+    # tiny training config (keeps hadamard branch active: n_head=2 with p=0.5 => 1 RA head)
+    depth: [2]
+    aspect_ratio: [16]
+    head_dim: [16]
+    max_seq_len: [64]
+    window_pattern: [L]
+    residual_gate_channels: [16]
+
+    # tiny optimization horizon
+    device_batch_size: [1]
+    total_batch_size: [64]
+    num_iterations: [4]
+
+    # data bootstrap
+    num_files: [2]
+
+    # paths
+    repo_root: [/Users/awni/Documents/project-code/abstractor-nanochat]
+    nanochat_base_dir: [/Users/awni/Documents/project-code/abstractor-nanochat/.nanochat_cache/attention_smoke]
+
+slurm_args:
+  defaults:
+    partition: gpu
+    time: "00:20:00"
+    mem: "24G"
+    nodes: 1
+    ntasks: 1
+    cpus_per_task: 4
+    gpus: 1
+
+job_name_pattern: "attnsmoke_{{ attention_impl }}"

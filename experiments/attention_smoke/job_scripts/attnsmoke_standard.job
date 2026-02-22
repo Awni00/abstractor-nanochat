@@ -1,0 +1,53 @@
+#!/bin/bash
+#SBATCH --job-name=attnsmoke_standard
+#SBATCH --partition=gpu
+#SBATCH --time=00:20:00
+#SBATCH --mem=24G
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:1
+#SBATCH --output=logs/attnsmoke_standard.%j.out
+#SBATCH --error=logs/attnsmoke_standard.%j.err
+
+set -euo pipefail
+
+echo "==== attention smoke job start ===="
+echo "job_name=attnsmoke_standard"
+echo "attention_impl=standard"
+echo "host=$(hostname)"
+echo "job_id=${SLURM_JOB_ID:-local}"
+
+cd /Users/awni/Documents/project-code/abstractor-nanochat
+
+if [ -f ".venv/bin/activate" ]; then
+  source .venv/bin/activate
+fi
+
+export NANOCHAT_BASE_DIR="/Users/awni/Documents/project-code/abstractor-nanochat/.nanochat_cache/attention_smoke"
+mkdir -p "${NANOCHAT_BASE_DIR}"
+
+# Minimal self-contained data bootstrap: 1 train shard + 1 val shard
+python -m nanochat.dataset --num-files 2 --num-workers 1
+
+python -m scripts.base_train \
+  --run dummy \
+  --device-type cuda \
+  --depth 2 \
+  --aspect-ratio 16 \
+  --head-dim 16 \
+  --max-seq-len 64 \
+  --window-pattern L \
+  --attention-impl standard \
+  --dual-rel-head-proportion 0.5 \
+  --residual-gate-channels 16 \
+  --device-batch-size 1 \
+  --total-batch-size 64 \
+  --num-iterations 4 \
+  --eval-every -1 \
+  --core-metric-every -1 \
+  --sample-every -1 \
+  --save-every -1 \
+  --model-tag attnsmoke_standard
+
+echo "==== attention smoke job success ===="

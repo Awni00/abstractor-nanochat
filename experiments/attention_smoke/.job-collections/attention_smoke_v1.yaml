@@ -1,0 +1,109 @@
+name: attention_smoke_v1
+description: Minimal smoke test for GPT attention_impl variants (standard vs hadamard_dual)
+created_at: '2026-02-22T17:45:57'
+updated_at: '2026-02-22T17:45:57'
+cluster: MWPF4RSQ95.yu.yale.edu
+parameters:
+  mode: grid
+  values:
+    attention_impl:
+    - standard
+    - hadamard_dual
+    dual_rel_head_proportion:
+    - 0.5
+    depth:
+    - 2
+    aspect_ratio:
+    - 16
+    head_dim:
+    - 16
+    max_seq_len:
+    - 64
+    window_pattern:
+    - L
+    residual_gate_channels:
+    - 16
+    device_batch_size:
+    - 1
+    total_batch_size:
+    - 64
+    num_iterations:
+    - 4
+    num_files:
+    - 2
+    repo_root:
+    - /Users/awni/Documents/project-code/abstractor-nanochat
+    nanochat_base_dir:
+    - /Users/awni/Documents/project-code/abstractor-nanochat/.nanochat_cache/attention_smoke
+jobs:
+- job_name: attnsmoke_standard
+  job_id: null
+  script_path: job_scripts/attnsmoke_standard.job
+  output_path: null
+  state: null
+  hostname: MWPF4RSQ95.yu.yale.edu
+  parameters:
+    attention_impl: standard
+    dual_rel_head_proportion: 0.5
+    depth: 2
+    aspect_ratio: 16
+    head_dim: 16
+    max_seq_len: 64
+    window_pattern: L
+    residual_gate_channels: 16
+    device_batch_size: 1
+    total_batch_size: 64
+    num_iterations: 4
+    num_files: 2
+    repo_root: /Users/awni/Documents/project-code/abstractor-nanochat
+    nanochat_base_dir: /Users/awni/Documents/project-code/abstractor-nanochat/.nanochat_cache/attention_smoke
+  submitted_at: null
+  started_at: null
+  completed_at: null
+  resubmissions: []
+  git_branch: master
+  git_commit_id: 17c14639fca1181546bcdeba1859df57d00df7a7
+- job_name: attnsmoke_hadamard_dual
+  job_id: null
+  script_path: job_scripts/attnsmoke_hadamard_dual.job
+  output_path: null
+  state: null
+  hostname: MWPF4RSQ95.yu.yale.edu
+  parameters:
+    attention_impl: hadamard_dual
+    dual_rel_head_proportion: 0.5
+    depth: 2
+    aspect_ratio: 16
+    head_dim: 16
+    max_seq_len: 64
+    window_pattern: L
+    residual_gate_channels: 16
+    device_batch_size: 1
+    total_batch_size: 64
+    num_iterations: 4
+    num_files: 2
+    repo_root: /Users/awni/Documents/project-code/abstractor-nanochat
+    nanochat_base_dir: /Users/awni/Documents/project-code/abstractor-nanochat/.nanochat_cache/attention_smoke
+  submitted_at: null
+  started_at: null
+  completed_at: null
+  resubmissions: []
+  git_branch: master
+  git_commit_id: 17c14639fca1181546bcdeba1859df57d00df7a7
+meta:
+  generation:
+    template_path: templates/base_train_smoke.job.j2
+    output_dir: job_scripts
+    job_name_pattern: attnsmoke_{{ attention_impl }}
+    logs_dir: logs
+    slurm_defaults:
+      partition: gpu
+      time: 00:20:00
+      mem: 24G
+      nodes: 1
+      ntasks: 1
+      cpus_per_task: 4
+      gpus: 1
+    slurm_logic_file: null
+    slurm_logic_function: get_slurm_args
+    spec_path: job_spec.yaml
