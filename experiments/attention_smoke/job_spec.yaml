@@ -34,7 +34,7 @@ slurm_args:
     # partition: gpu_h200
     cpus_per_task: 32
     mem: 64G
-    gpus: 4
+    gpus: 1
     # gpu_type: h100
     nodes: 1
     # qos: qos_nmi
