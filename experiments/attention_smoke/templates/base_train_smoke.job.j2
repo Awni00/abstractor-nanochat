@@ -42,9 +42,6 @@ fi
 export NANOCHAT_BASE_DIR="${PROJECT_ROOT}/.cache"
 mkdir -p "${NANOCHAT_BASE_DIR}"
 
-# Minimal self-contained data bootstrap: 1 train shard + 1 val shard
-python -m nanochat.dataset --num-files {{ num_files }} --num-workers 1
-
 python -m scripts.base_train \
   --run dummy \
   --device-type cuda \
